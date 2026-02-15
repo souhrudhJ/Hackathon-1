@@ -1,34 +1,37 @@
 """
 Configuration for the AI-Powered Property Inspection System.
-Uses Google Gemini Vision as the primary detection engine.
+YOLO for real-time detection, Gemini for report generation.
 """
 import os
 
 PROJECT_ROOT = os.path.dirname(os.path.abspath(__file__))
+WEIGHTS_DIR = os.path.join(PROJECT_ROOT, "weights")
 OUTPUTS_DIR = os.path.join(PROJECT_ROOT, "outputs")
+os.makedirs(WEIGHTS_DIR, exist_ok=True)
 os.makedirs(OUTPUTS_DIR, exist_ok=True)
 
-# ── Gemini API ──────────────────────────────────────────────────
-GEMINI_MODEL = "gemini-2.5-flash"  # fast, supports vision + bounding boxes
+# ── YOLO model ─────────────────────────────────────────────────
+CUSTOM_WEIGHTS = os.path.join(WEIGHTS_DIR, "best.pt")
+FALLBACK_WEIGHTS = "yolov8n.pt"
+CONFIDENCE_THRESHOLD = 0.25
+IOU_THRESHOLD = 0.45
+IMAGE_SIZE = 640
 
-# ── Defect categories and severity weights ─────────────────────
-# Each defect type has a base severity weight (0-1) used for risk scoring.
-DEFECT_TYPES = {
-    "structural_crack":    {"label": "Structural Crack",      "weight": 0.95, "priority": "critical", "color": (0, 0, 220)},
-    "wall_crack":          {"label": "Wall Crack",            "weight": 0.80, "priority": "high",     "color": (0, 50, 255)},
-    "ceiling_crack":       {"label": "Ceiling Crack",         "weight": 0.85, "priority": "high",     "color": (0, 80, 255)},
-    "floor_damage":        {"label": "Floor / Tile Damage",   "weight": 0.70, "priority": "high",     "color": (0, 120, 255)},
-    "water_damage":        {"label": "Water Leakage / Dampness", "weight": 0.90, "priority": "critical", "color": (200, 100, 0)},
-    "mold":                {"label": "Mold / Fungal Growth",  "weight": 0.85, "priority": "high",     "color": (0, 150, 0)},
-    "peeling_paint":       {"label": "Paint Deterioration",   "weight": 0.40, "priority": "medium",   "color": (0, 200, 200)},
-    "electrical_hazard":   {"label": "Electrical Hazard",     "weight": 1.00, "priority": "critical", "color": (0, 0, 255)},
-    "exposed_wiring":      {"label": "Exposed Wiring",        "weight": 1.00, "priority": "critical", "color": (0, 0, 255)},
-    "broken_fixture":      {"label": "Broken Fixture",        "weight": 0.55, "priority": "medium",   "color": (180, 0, 180)},
-    "plumbing_issue":      {"label": "Plumbing Issue",        "weight": 0.75, "priority": "high",     "color": (200, 100, 0)},
-    "window_damage":       {"label": "Window / Door Damage",  "weight": 0.50, "priority": "medium",   "color": (150, 150, 0)},
-    "staircase_damage":    {"label": "Staircase Damage",      "weight": 0.80, "priority": "high",     "color": (100, 0, 200)},
-    "other":               {"label": "Other Defect",          "weight": 0.30, "priority": "low",      "color": (128, 128, 128)},
+# ── Gemini (report generation only) ───────────────────────────
+GEMINI_MODEL = "gemini-2.5-flash"
+
+# ── YOLO class → display info mapping ─────────────────────────
+# The trained model has these 5 classes (from Roboflow dataset):
+YOLO_CLASS_CONFIG = {
+    "crack":           {"label": "Crack",              "weight": 0.85, "priority": "high",   "color": (0, 50, 255)},
+    "mold":            {"label": "Mold / Fungal Growth","weight": 0.80, "priority": "high",   "color": (0, 180, 0)},
+    "peeling_paint":   {"label": "Peeling Paint",      "weight": 0.50, "priority": "medium", "color": (0, 200, 200)},
+    "stairstep_crack": {"label": "Stairstep Crack",    "weight": 0.90, "priority": "critical","color": (0, 0, 220)},
+    "water_seepage":   {"label": "Water Seepage",      "weight": 0.90, "priority": "critical","color": (200, 100, 0)},
 }
+
+# Fallback for unknown class names
+DEFAULT_CLASS_CONFIG = {"label": "Defect", "weight": 0.50, "priority": "medium", "color": (128, 128, 128)}
 
 PRIORITY_ORDER = {"critical": 0, "high": 1, "medium": 2, "low": 3}
 PRIORITY_COLORS = {
@@ -39,5 +42,5 @@ PRIORITY_COLORS = {
 }
 
 # ── Video processing ───────────────────────────────────────────
-FRAME_INTERVAL_SEC = 2.0   # extract one frame every N seconds
-MAX_FRAMES = 30            # cap to keep Gemini API usage reasonable
+FRAME_INTERVAL_SEC = 1.0   # extract one frame every N seconds
+MAX_FRAMES = 60            # more frames OK — YOLO is fast

@@ -6,7 +6,7 @@ from __future__ import annotations
 
 from typing import List
 
-from config import DEFECT_TYPES, PRIORITY_ORDER
+from config import YOLO_CLASS_CONFIG, DEFAULT_CLASS_CONFIG, PRIORITY_ORDER
 
 
 def score_frame(analysis: dict) -> dict:
@@ -32,7 +32,7 @@ def score_frame(analysis: dict) -> dict:
     for d in defects:
         dtype = d.get("type", "other")
         severity = d.get("severity", "medium")
-        cfg = DEFECT_TYPES.get(dtype, DEFECT_TYPES["other"])
+        cfg = YOLO_CLASS_CONFIG.get(dtype, DEFAULT_CLASS_CONFIG)
 
         # Base weight from config * severity multiplier
         severity_mult = {"critical": 1.0, "high": 0.75, "medium": 0.5, "low": 0.25}.get(severity, 0.5)
