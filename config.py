@@ -10,6 +10,7 @@ os.makedirs(OUTPUTS_DIR, exist_ok=True)
 
 # ── Gemini API ──────────────────────────────────────────────────
 GEMINI_MODEL = "gemini-2.5-flash"  # fast, supports vision + bounding boxes
+GEMINI_API_KEY = "AIzaSyCKhhg3ByXtkbHaWqN3NQaZ4ndv1xQmTbQ"  # hardcoded; not shown on dashboard
 
 # ── Defect categories and severity weights ─────────────────────
 # Each defect type has a base severity weight (0-1) used for risk scoring.

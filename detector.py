@@ -115,25 +115,26 @@ def annotate_image(image: Image.Image, analysis: dict) -> Image.Image:
         bgr_color = cfg["color"]
         rgb_color = (bgr_color[2], bgr_color[1], bgr_color[0])
 
-        # Thickness based on severity
-        thickness = {"critical": 3, "high": 3, "medium": 2, "low": 2}.get(severity, 2)
+        # Thickness based on severity (bolder for readability)
+        thickness = {"critical": 5, "high": 4, "medium": 3, "low": 3}.get(severity, 3)
 
-        # Draw box
+        # Draw box (thicker outline)
         cv2.rectangle(img, (x1, y1), (x2, y2), rgb_color, thickness)
 
-        # Label
+        # Label (bigger text, bolder)
         label = cfg["label"]
         sev_tag = severity.upper()
         label_text = f"{label} [{sev_tag}]"
 
         font = cv2.FONT_HERSHEY_SIMPLEX
-        font_scale = 0.45
-        (tw, th_text), baseline = cv2.getTextSize(label_text, font, font_scale, 1)
+        font_scale = 0.75
+        (tw, th_text), baseline = cv2.getTextSize(label_text, font, font_scale, 2)
 
-        # Background rectangle for label
-        label_y = max(y1 - th_text - 8, 0)
-        cv2.rectangle(img, (x1, label_y), (x1 + tw + 4, label_y + th_text + 8), rgb_color, -1)
-        cv2.putText(img, label_text, (x1 + 2, label_y + th_text + 4), font, font_scale, (255, 255, 255), 1)
+        # Background rectangle for label (more padding)
+        pad = 10
+        label_y = max(y1 - th_text - pad, 0)
+        cv2.rectangle(img, (x1, label_y), (x1 + tw + pad * 2, label_y + th_text + pad * 2), rgb_color, -1)
+        cv2.putText(img, label_text, (x1 + pad // 2, label_y + th_text + pad), font, font_scale, (255, 255, 255), 2)
 
     return Image.fromarray(img)
 

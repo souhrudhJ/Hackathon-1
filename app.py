@@ -14,8 +14,12 @@ from config import (
     FRAME_INTERVAL_SEC,
     MAX_FRAMES,
     GEMINI_MODEL,
+    GEMINI_API_KEY,
 )
 from analyzer import configure_gemini, analyze_image, analyze_frames, generate_property_report
+
+# Configure API once at startup (key not shown on dashboard)
+configure_gemini(GEMINI_API_KEY)
 from detector import (
     extract_frames_from_bytes,
     decode_uploaded_image,
@@ -28,32 +32,9 @@ from report_generator import generate_pdf
 # ── Page config ────────────────────────────────────────────────
 st.set_page_config(
     page_title="AI Property Inspector",
-    page_icon="🏠",
+    page_icon="",
     layout="wide",
 )
-
-
-def _get_api_key() -> str | None:
-    """Get Gemini API key from sidebar input or session."""
-    if "gemini_key" not in st.session_state:
-        st.session_state.gemini_key = ""
-    with st.sidebar:
-        st.subheader("🔑 Gemini API Key")
-        key = st.text_input(
-            "Enter your Google Gemini API key",
-            value=st.session_state.gemini_key,
-            type="password",
-            help="Free at https://aistudio.google.com/apikey",
-        )
-        if key:
-            st.session_state.gemini_key = key
-            configure_gemini(key)
-            st.success("API key set")
-            return key
-        else:
-            st.warning("Required to run analysis.")
-            st.markdown("[Get a free API key →](https://aistudio.google.com/apikey)")
-            return None
 
 
 def _render_risk_badge(score: float, level: str):
@@ -88,22 +69,20 @@ def _render_defect_card(defect: dict, frame_idx: int | None = None):
 
 # ── MAIN ───────────────────────────────────────────────────────
 
-st.title("🏠 AI-Powered Property Inspector")
+st.title("AI-Powered Property Inspector")
 st.caption(
-    "Detect structural cracks, water damage, electrical hazards, mold, exposed wiring, "
-    "broken fixtures, and more — powered by Google Gemini Vision."
+    "Structural cracks, water damage, electrical hazards, mold, exposed wiring, "
+    "broken fixtures. AI-powered defect detection and reporting."
 )
-
-api_key = _get_api_key()
 
 # Sidebar settings
 with st.sidebar:
     st.divider()
-    st.subheader("⚙️ Settings")
+    st.subheader("Settings")
     frame_interval = st.slider("Frame interval (sec)", 0.5, 5.0, FRAME_INTERVAL_SEC, 0.5)
     max_frames = st.slider("Max frames (video)", 5, 60, MAX_FRAMES, 5)
 
-tab_upload, tab_camera, tab_report = st.tabs(["📁 Upload & Inspect", "📷 Live Camera", "📊 Report"])
+tab_upload, tab_camera, tab_report = st.tabs(["Upload & Inspect", "Live Camera", "Report"])
 
 # ── TAB 1: Upload & Inspect ───────────────────────────────────
 with tab_upload:
@@ -112,7 +91,7 @@ with tab_upload:
         type=["mp4", "avi", "mov", "webm", "jpg", "jpeg", "png"],
     )
 
-    if uploaded and api_key:
+    if uploaded:
         bytes_data = uploaded.read()
         is_video = Path(uploaded.name).suffix.lower() in (".mp4", ".avi", ".mov", ".webm")
 
@@ -123,7 +102,7 @@ with tab_upload:
                 f"{info['duration_sec']:.1f}s | {info['fps']:.0f} FPS"
             )
 
-        if st.button("🔍 Run Inspection", type="primary", key="upload_run"):
+        if st.button("Run Inspection", type="primary", key="upload_run"):
             try:
                 if is_video:
                     with st.spinner("Extracting frames (OpenCV)..."):
@@ -194,7 +173,7 @@ with tab_upload:
                             timestamps=timestamps,
                         )
                         st.download_button(
-                            label="📄 Download PDF Report",
+                            label="Download PDF Report",
                             data=pdf_bytes,
                             file_name=f"property_inspection_report_{prop_score['overall_score']:.0f}.pdf",
                             mime="application/pdf",
@@ -206,7 +185,7 @@ with tab_upload:
 
                 else:
                     # Single image
-                    with st.spinner("Analyzing image with Gemini Vision..."):
+                    with st.spinner("Analyzing image..."):
                         pil_img = decode_uploaded_image(bytes_data)
                         analysis = analyze_image(pil_img, GEMINI_MODEL)
 
@@ -247,7 +226,7 @@ with tab_upload:
                                 timestamps=[0.0],
                             )
                             st.download_button(
-                                label="📄 Download PDF Report",
+                                label="Download PDF Report",
                                 data=pdf_bytes,
                                 file_name=f"property_inspection_report_{fs['score']:.0f}.pdf",
                                 mime="application/pdf",
@@ -261,102 +240,92 @@ with tab_upload:
                 st.error(f"Error during inspection: {str(e)}")
                 if "429" in str(e) or "quota" in str(e).lower():
                     st.warning(
-                        "**Rate limit hit.** Your Gemini API key has exceeded its quota. Options:\n"
-                        "1. Wait 1-2 minutes and try again\n"
-                        "2. Use a different API key\n"
-                        "3. Check your quota at https://ai.dev/rate-limit"
+                        "**Rate limit hit.** API quota exceeded. Wait 1–2 minutes and try again."
                     )
-
-    elif uploaded and not api_key:
-        st.warning("Enter your Gemini API key in the sidebar to run analysis.")
-
 
 # ── TAB 2: Live Camera ────────────────────────────────────────
 with tab_camera:
-    st.subheader("📷 Capture & Inspect")
+    st.subheader("Capture & Inspect")
     st.caption(
         "Use your webcam or phone camera to capture photos of rooms. "
         "Each capture is analyzed instantly for defects."
     )
 
-    if not api_key:
-        st.warning("Enter your Gemini API key in the sidebar first.")
-    else:
-        # Initialize session storage for camera captures
-        if "camera_results" not in st.session_state:
+    # Initialize session storage for camera captures
+    if "camera_results" not in st.session_state:
+        st.session_state.camera_results = []
+
+    room_name = st.text_input("Room name (optional)", placeholder="e.g. Kitchen, Bedroom 1, Bathroom")
+    camera_photo = st.camera_input("Take a photo")
+
+    if camera_photo is not None:
+        pil_img = Image.open(camera_photo)
+        try:
+            with st.spinner("Analyzing image..."):
+                analysis = analyze_image(pil_img, GEMINI_MODEL)
+
+            if analysis.get("error"):
+                st.error(f"API error: {analysis['summary']}")
+            else:
+                fs = score_frame(analysis)
+                ann = annotate_image(pil_img, analysis)
+
+                # Store result
+                st.session_state.camera_results.append({
+                    "room": room_name or f"Capture {len(st.session_state.camera_results) + 1}",
+                    "image": pil_img,
+                    "annotated": ann,
+                    "analysis": analysis,
+                    "score": fs,
+                })
+
+                _render_risk_badge(fs["score"], fs["risk_level"])
+
+                c1, c2 = st.columns(2)
+                c1.image(pil_img, caption="Original", use_container_width=True)
+                c2.image(ann, caption="Defects Detected", use_container_width=True)
+
+                st.write(analysis.get("summary", ""))
+                for d in analysis.get("defects", []):
+                    _render_defect_card(d)
+
+        except Exception as e:
+            st.error(f"Error: {str(e)}")
+            if "429" in str(e) or "quota" in str(e).lower():
+                st.warning("Rate limit hit. Wait 1-2 minutes and try again.")
+
+    # Show history of captures
+    if st.session_state.camera_results:
+        st.divider()
+        st.subheader("Inspection History")
+
+        # Build analyses list for report tab
+        cam_analyses = [r["analysis"] for r in st.session_state.camera_results]
+        cam_frames = [r["image"] for r in st.session_state.camera_results]
+        prop_score = score_property(cam_analyses)
+
+        st.session_state["analyses"] = cam_analyses
+        st.session_state["frames"] = cam_frames
+        st.session_state["timestamps"] = [0.0] * len(cam_frames)
+        st.session_state["property_score"] = prop_score
+        st.session_state["mode"] = "camera"
+        st.session_state["room_names"] = [r["room"] for r in st.session_state.camera_results]
+
+        _render_risk_badge(prop_score["overall_score"], prop_score["risk_level"])
+
+        cols = st.columns(min(3, len(st.session_state.camera_results)))
+        for i, r in enumerate(st.session_state.camera_results):
+            col = cols[i % len(cols)]
+            col.image(r["annotated"], caption=f"{r['room']} — Risk: {r['score']['score']}", use_container_width=True)
+
+        if st.button("Clear all captures"):
             st.session_state.camera_results = []
-
-        room_name = st.text_input("Room name (optional)", placeholder="e.g. Kitchen, Bedroom 1, Bathroom")
-        camera_photo = st.camera_input("Take a photo")
-
-        if camera_photo is not None:
-            pil_img = Image.open(camera_photo)
-            try:
-                with st.spinner("Analyzing with Gemini Vision..."):
-                    analysis = analyze_image(pil_img, GEMINI_MODEL)
-
-                if analysis.get("error"):
-                    st.error(f"API error: {analysis['summary']}")
-                else:
-                    fs = score_frame(analysis)
-                    ann = annotate_image(pil_img, analysis)
-
-                    # Store result
-                    st.session_state.camera_results.append({
-                        "room": room_name or f"Capture {len(st.session_state.camera_results) + 1}",
-                        "image": pil_img,
-                        "annotated": ann,
-                        "analysis": analysis,
-                        "score": fs,
-                    })
-
-                    _render_risk_badge(fs["score"], fs["risk_level"])
-
-                    c1, c2 = st.columns(2)
-                    c1.image(pil_img, caption="Original", use_container_width=True)
-                    c2.image(ann, caption="Defects Detected", use_container_width=True)
-
-                    st.write(analysis.get("summary", ""))
-                    for d in analysis.get("defects", []):
-                        _render_defect_card(d)
-
-            except Exception as e:
-                st.error(f"Error: {str(e)}")
-                if "429" in str(e) or "quota" in str(e).lower():
-                    st.warning("Rate limit hit. Wait 1-2 minutes or use a different API key.")
-
-        # Show history of captures
-        if st.session_state.camera_results:
-            st.divider()
-            st.subheader("Inspection History")
-
-            # Build analyses list for report tab
-            cam_analyses = [r["analysis"] for r in st.session_state.camera_results]
-            cam_frames = [r["image"] for r in st.session_state.camera_results]
-            prop_score = score_property(cam_analyses)
-
-            st.session_state["analyses"] = cam_analyses
-            st.session_state["frames"] = cam_frames
-            st.session_state["timestamps"] = [0.0] * len(cam_frames)
-            st.session_state["property_score"] = prop_score
-            st.session_state["mode"] = "camera"
-            st.session_state["room_names"] = [r["room"] for r in st.session_state.camera_results]
-
-            _render_risk_badge(prop_score["overall_score"], prop_score["risk_level"])
-
-            cols = st.columns(min(3, len(st.session_state.camera_results)))
-            for i, r in enumerate(st.session_state.camera_results):
-                col = cols[i % len(cols)]
-                col.image(r["annotated"], caption=f"{r['room']} — Risk: {r['score']['score']}", use_container_width=True)
-
-            if st.button("🗑️ Clear all captures"):
-                st.session_state.camera_results = []
-                st.rerun()
+            st.rerun()
 
 
 # ── TAB 3: Report ─────────────────────────────────────────────
 with tab_report:
-    st.subheader("📊 Inspection Report")
+    st.subheader("Inspection Report")
 
     if "property_score" not in st.session_state:
         st.info("Run an inspection in the Upload or Camera tab first.")
@@ -388,7 +357,7 @@ with tab_report:
                 timestamps=timestamps,
             )
             st.download_button(
-                label="📄 Download PDF Report",
+                                label="Download PDF Report",
                 data=pdf_bytes,
                 file_name=f"property_inspection_report_{prop['overall_score']:.0f}.pdf",
                 mime="application/pdf",
@@ -400,12 +369,12 @@ with tab_report:
 
         # Full property report (from Step 2, when run from video)
         if st.session_state.get("full_report_text"):
-            st.subheader("📋 Full Property Report")
+            st.subheader("Full Property Report")
             st.markdown(st.session_state["full_report_text"])
 
         # Priority actions
         if prop.get("priority_actions"):
-            st.subheader("🚨 Priority Actions")
+            st.subheader("Priority Actions")
             for i, action in enumerate(prop["priority_actions"], 1):
                 _render_defect_card(action, frame_idx=action.get("frame_index"))
 
