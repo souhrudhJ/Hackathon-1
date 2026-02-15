@@ -1,8 +1,0 @@
-__pycache__/
-*.pyc
-*.pt
-venv/
-.env
-outputs/
-*.mp4
-*.avi

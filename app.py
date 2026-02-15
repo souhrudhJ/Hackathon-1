@@ -15,7 +15,7 @@ from config import (
     MAX_FRAMES,
     GEMINI_MODEL,
 )
-from analyzer import configure_gemini, analyze_image, analyze_frames
+from analyzer import configure_gemini, analyze_image, analyze_frames, generate_property_report
 from detector import (
     extract_frames_from_bytes,
     decode_uploaded_image,
@@ -23,6 +23,7 @@ from detector import (
     get_video_info,
 )
 from risk_calculator import score_frame, score_property
+from report_generator import generate_pdf
 
 # ── Page config ────────────────────────────────────────────────
 st.set_page_config(
@@ -125,55 +126,83 @@ with tab_upload:
         if st.button("🔍 Run Inspection", type="primary", key="upload_run"):
             try:
                 if is_video:
-                    with st.spinner("Extracting frames from video..."):
+                    with st.spinner("Extracting frames (OpenCV)..."):
                         frame_tuples = extract_frames_from_bytes(bytes_data, frame_interval, max_frames)
                         frames = [ft[0] for ft in frame_tuples]
                         timestamps = [ft[2] for ft in frame_tuples]
 
-                    st.info(f"Extracted {len(frames)} frames. Analyzing each with Gemini Vision...")
-                    progress = st.progress(0, text="Analyzing frames...")
+                    st.info(f"**Step 1 — Live detection:** {len(frames)} frames. Results appear below as each frame is analyzed.")
+                    progress = st.progress(0, text="Analyzing frame 1...")
 
-                    def update_progress(current, total):
-                        progress.progress(current / total, text=f"Analyzing frame {current}/{total}...")
+                    analyses = []
+                    live_container = st.container()
 
-                    analyses = analyze_frames(frames, GEMINI_MODEL, progress_callback=update_progress)
+                    for i, frame in enumerate(frames):
+                        progress.progress((i + 1) / len(frames), text=f"Analyzing frame {i + 1}/{len(frames)}...")
+                        analysis = analyze_image(frame, GEMINI_MODEL)
+                        analyses.append(analysis)
+
+                        # Show this frame’s result immediately (progressive display)
+                        with live_container:
+                            ann = annotate_image(frame, analysis)
+                            n_defs = len(analysis.get("defects", []))
+                            fs = score_frame(analysis)
+                            row1, row2 = st.columns([1, 1])
+                            with row1:
+                                st.image(ann, caption=f"Frame {i + 1} · t={timestamps[i]:.1f}s · {n_defs} defects · Risk {fs['score']}/100", use_container_width=True)
+                            with row2:
+                                st.caption(f"**{analysis.get('room_condition', 'unknown').upper()}**")
+                                st.write((analysis.get("summary") or "")[:280] + ("…" if len(analysis.get("summary") or "") > 280 else ""))
+                            st.divider()
+
                     progress.empty()
 
-                    # Check if any analysis had errors
+                    # Check for errors
                     errors = [a for a in analyses if a.get("error")]
                     if errors:
                         st.warning(f"{len(errors)} frame(s) had API errors. Results may be partial.")
 
-                    # Store results in session state for report tab
+                    # Store for report tab
                     st.session_state["analyses"] = analyses
                     st.session_state["frames"] = frames
                     st.session_state["timestamps"] = timestamps
                     st.session_state["mode"] = "video"
 
-                    # Score
                     prop_score = score_property(analyses)
                     st.session_state["property_score"] = prop_score
 
                     _render_risk_badge(prop_score["overall_score"], prop_score["risk_level"])
-
                     col_m1, col_m2, col_m3 = st.columns(3)
                     col_m1.metric("Total Defects", prop_score["total_defects"])
                     col_m2.metric("Critical", prop_score["critical_defects"])
                     col_m3.metric("High", prop_score.get("high_defects", 0))
 
-                    # Show annotated frames
-                    st.subheader("Annotated Frames")
-                    display_count = min(12, len(frames))
-                    cols = st.columns(3)
-                    for i in range(display_count):
-                        ann = annotate_image(frames[i], analyses[i])
-                        n_defs = len(analyses[i].get("defects", []))
-                        fs = score_frame(analyses[i])
-                        caption = f"Frame {i} | t={timestamps[i]:.1f}s | {n_defs} defects | Risk: {fs['score']}"
-                        cols[i % 3].image(ann, caption=caption, use_container_width=True)
+                    # Step 2 — Full report (generated after detections are shown)
+                    st.subheader("Step 2 — Full property report")
+                    with st.spinner("Generating report from findings..."):
+                        full_report = generate_property_report(analyses, GEMINI_MODEL)
+                    st.session_state["full_report_text"] = full_report
+                    st.markdown(full_report)
 
-                    if len(frames) > display_count:
-                        st.caption(f"Showing first {display_count} of {len(frames)} frames.")
+                    # PDF download (same as Report tab)
+                    try:
+                        pdf_bytes = generate_pdf(
+                            frames=frames,
+                            analyses=analyses,
+                            property_score=prop_score,
+                            full_report_text=full_report,
+                            timestamps=timestamps,
+                        )
+                        st.download_button(
+                            label="📄 Download PDF Report",
+                            data=pdf_bytes,
+                            file_name=f"property_inspection_report_{prop_score['overall_score']:.0f}.pdf",
+                            mime="application/pdf",
+                            type="primary",
+                            key="pdf_download_upload_video",
+                        )
+                    except Exception as e:
+                        st.warning(f"PDF could not be generated: {e}")
 
                 else:
                     # Single image
@@ -207,6 +236,26 @@ with tab_upload:
                             st.subheader("Defects Found")
                             for d in analysis["defects"]:
                                 _render_defect_card(d)
+
+                        # PDF download for single image
+                        try:
+                            pdf_bytes = generate_pdf(
+                                frames=[pil_img],
+                                analyses=[analysis],
+                                property_score=prop_score,
+                                full_report_text=analysis.get("summary", ""),
+                                timestamps=[0.0],
+                            )
+                            st.download_button(
+                                label="📄 Download PDF Report",
+                                data=pdf_bytes,
+                                file_name=f"property_inspection_report_{fs['score']:.0f}.pdf",
+                                mime="application/pdf",
+                                type="primary",
+                                key="pdf_download_upload_image",
+                            )
+                        except Exception as e:
+                            st.warning(f"PDF could not be generated: {e}")
 
             except Exception as e:
                 st.error(f"Error during inspection: {str(e)}")
@@ -326,6 +375,33 @@ with tab_report:
         m2.metric("Total Defects", prop["total_defects"])
         m3.metric("Critical Issues", prop["critical_defects"])
         m4.metric("Frames Analyzed", len(analyses))
+
+        # PDF download
+        timestamps = st.session_state.get("timestamps", [0.0] * len(frames))
+        full_report = st.session_state.get("full_report_text", "")
+        try:
+            pdf_bytes = generate_pdf(
+                frames=frames,
+                analyses=analyses,
+                property_score=prop,
+                full_report_text=full_report,
+                timestamps=timestamps,
+            )
+            st.download_button(
+                label="📄 Download PDF Report",
+                data=pdf_bytes,
+                file_name=f"property_inspection_report_{prop['overall_score']:.0f}.pdf",
+                mime="application/pdf",
+                type="primary",
+                key="pdf_download_report",
+            )
+        except Exception as e:
+            st.warning(f"PDF could not be generated: {e}")
+
+        # Full property report (from Step 2, when run from video)
+        if st.session_state.get("full_report_text"):
+            st.subheader("📋 Full Property Report")
+            st.markdown(st.session_state["full_report_text"])
 
         # Priority actions
         if prop.get("priority_actions"):

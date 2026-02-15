@@ -135,6 +135,59 @@ def analyze_image(
     }
 
 
+def generate_property_report(
+    analyses: List[dict],
+    model_name: str = "gemini-2.5-flash",
+) -> str:
+    """
+    Generate one cohesive property report from per-frame analyses (text-only, no image).
+    Call this after all frames are analyzed; runs as "step 2" while user already sees detections.
+    """
+    if not analyses:
+        return "_No frame data to generate report._"
+
+    # Build context from frame summaries and defect counts
+    parts = []
+    for i, a in enumerate(analyses):
+        n_defs = len(a.get("defects", []))
+        cond = a.get("room_condition", "unknown")
+        summary = (a.get("summary") or "").strip()
+        parts.append(f"**Frame {i + 1}** (condition: {cond}, defects: {n_defs}): {summary}")
+
+    prompt = f"""You are an expert property inspector. Below are the per-frame findings from a video/image inspection.
+Synthesize them into ONE short property inspection report in markdown with:
+1. **Executive summary** (2-3 sentences): overall condition and main concerns.
+2. **Key findings**: bullet list of the most important defects across all frames (deduplicate similar items).
+3. **Recommendations**: 3-5 actionable next steps (e.g. "Get a structural assessment", "Address water intrusion before repainting").
+
+Keep it concise and professional. Write in second person ("The property shows...", "You should...").
+
+Per-frame findings:
+{chr(10).join(parts)}
+"""
+
+    models_to_try = [model_name] + [m for m in _MODEL_FALLBACK_CHAIN if m != model_name]
+    last_error = None
+    for m_name in models_to_try:
+        try:
+            model = genai.GenerativeModel(m_name)
+            response = model.generate_content(
+                prompt,
+                generation_config=genai.GenerationConfig(
+                    temperature=0.2,
+                    max_output_tokens=1024,
+                ),
+            )
+            return (response.text or "").strip() or "_Could not generate report._"
+        except Exception as e:
+            last_error = e
+            err_str = str(e).lower()
+            if "404" in err_str or "not found" in err_str:
+                break
+            continue
+    return f"_Report generation failed: {str(last_error)[:150]}._"
+
+
 def analyze_frames(
     frames: List[Image.Image],
     model_name: str = "gemini-2.0-flash",
