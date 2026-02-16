@@ -26,10 +26,12 @@ from analyzer import configure_gemini, analyze_image, analyze_frames, generate_p
 # Configure API once at startup (key not shown on dashboard)
 configure_gemini(GEMINI_API_KEY)
 from detector import (
+    extract_frames,
     extract_frames_from_bytes,
     decode_uploaded_image,
     annotate_image,
     get_video_info,
+    get_video_info_from_path,
 )
 from risk_calculator import score_frame, score_property
 from report_generator import generate_pdf
@@ -73,13 +75,14 @@ def _render_defect_card(defect: dict, frame_idx: int | None = None):
 
 
 def _record_webcam_to_file(stop_flag: list, output_path: str) -> None:
-    """Background thread: capture webcam and write to file until stop_flag[0] is True."""
+    """Background thread: capture webcam and write to file until stop_flag[0] is True.
+    Uses AVI + MJPEG for compatibility with OpenCV on Windows."""
     cap = cv2.VideoCapture(0)
     if not cap.isOpened():
         return
     w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
     h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
-    fourcc = cv2.VideoWriter_fourcc(*"mp4v")
+    fourcc = cv2.VideoWriter_fourcc(*"MJPG")
     out = cv2.VideoWriter(output_path, fourcc, 10.0, (w, h))
     try:
         while not stop_flag[0]:
@@ -347,7 +350,7 @@ with tab_camera:
         if not st.session_state.recording_active and st.session_state.recorded_video_path is None:
             if st.button("Start recording", type="primary"):
                 st.session_state.recording_stop_flag[0] = False
-                fd, path = tempfile.mkstemp(suffix=".mp4")
+                fd, path = tempfile.mkstemp(suffix=".avi")
                 os.close(fd)
                 st.session_state.recorded_video_path = path
                 t = threading.Thread(
@@ -367,6 +370,7 @@ with tab_camera:
                 st.session_state.recording_stop_flag[0] = True
                 if st.session_state.recording_thread is not None:
                     st.session_state.recording_thread.join(timeout=3.0)
+                time.sleep(0.5)  # allow OS to release file handle before we open it
                 st.session_state.recording_active = False
                 st.session_state.recording_thread = None
                 st.rerun()
@@ -380,11 +384,9 @@ with tab_camera:
                 with col_run:
                     if st.button("Run inspection on recording", type="primary") and not st.session_state.recorded_video_analyzed:
                         try:
-                            with open(rec_path, "rb") as f:
-                                bytes_data = f.read()
-                            info = get_video_info(bytes_data)
+                            info = get_video_info_from_path(rec_path)
                             st.info(f"Recorded: {info['width']}x{info['height']} | {info['duration_sec']:.1f}s")
-                            frame_tuples = extract_frames_from_bytes(bytes_data, frame_interval, max_frames)
+                            frame_tuples = extract_frames(rec_path, frame_interval, max_frames)
                             frames = [ft[0] for ft in frame_tuples]
                             timestamps = [ft[2] for ft in frame_tuples]
 

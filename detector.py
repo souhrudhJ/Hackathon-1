@@ -140,17 +140,33 @@ def annotate_image(image: Image.Image, analysis: dict) -> Image.Image:
 
 
 def get_video_info(video_bytes: bytes) -> dict:
-    """Get basic info about an uploaded video."""
+    """Get basic info about an uploaded video (from bytes)."""
     with tempfile.NamedTemporaryFile(suffix=".mp4", delete=False) as f:
         f.write(video_bytes)
         path = f.name
     try:
-        cap = cv2.VideoCapture(path)
+        return _get_video_info_from_path(path)
+    finally:
+        try:
+            os.unlink(path)
+        except OSError:
+            pass
+
+
+def get_video_info_from_path(video_path: str) -> dict:
+    """Get basic info about a video file (from path). Use for local recordings."""
+    return _get_video_info_from_path(video_path)
+
+
+def _get_video_info_from_path(path: str) -> dict:
+    cap = cv2.VideoCapture(path)
+    if not cap.isOpened():
+        raise ValueError(f"Cannot open video: {path}")
+    try:
         fps = cap.get(cv2.CAP_PROP_FPS) or 25.0
         total = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
         w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
         h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
-        cap.release()
         return {
             "fps": fps,
             "total_frames": total,
@@ -159,7 +175,4 @@ def get_video_info(video_bytes: bytes) -> dict:
             "height": h,
         }
     finally:
-        try:
-            os.unlink(path)
-        except OSError:
-            pass
+        cap.release()
