@@ -3,8 +3,13 @@ AI-Powered Property Inspection System
 Upload video/images or use live camera → Gemini Vision detects ALL defect types →
 annotated results + risk scores + professional summary.
 """
+import os
+import tempfile
+import threading
+import time
 from pathlib import Path
 
+import cv2
 import streamlit as st
 from PIL import Image
 
@@ -65,6 +70,27 @@ def _render_defect_card(defect: dict, frame_idx: int | None = None):
         f'<span style="color:#ccc;font-size:0.9em;">{desc}</span></div>',
         unsafe_allow_html=True,
     )
+
+
+def _record_webcam_to_file(stop_flag: list, output_path: str) -> None:
+    """Background thread: capture webcam and write to file until stop_flag[0] is True."""
+    cap = cv2.VideoCapture(0)
+    if not cap.isOpened():
+        return
+    w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+    h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+    fourcc = cv2.VideoWriter_fourcc(*"mp4v")
+    out = cv2.VideoWriter(output_path, fourcc, 10.0, (w, h))
+    try:
+        while not stop_flag[0]:
+            ret, frame = cap.read()
+            if not ret:
+                break
+            out.write(frame)
+            time.sleep(0.1)
+    finally:
+        cap.release()
+        out.release()
 
 
 # ── MAIN ───────────────────────────────────────────────────────
@@ -247,59 +273,220 @@ with tab_upload:
 with tab_camera:
     st.subheader("Capture & Inspect")
     st.caption(
-        "Use your webcam or phone camera to capture photos of rooms. "
-        "Each capture is analyzed instantly for defects."
+        "Use your webcam to take photos or record a short video. "
+        "Each capture is analyzed for defects."
     )
 
-    # Initialize session storage for camera captures
+    # Session state for camera
     if "camera_results" not in st.session_state:
         st.session_state.camera_results = []
+    if "camera_mode" not in st.session_state:
+        st.session_state.camera_mode = "photo"
+    if "recording_active" not in st.session_state:
+        st.session_state.recording_active = False
+    if "recording_stop_flag" not in st.session_state:
+        st.session_state.recording_stop_flag = [False]
+    if "recording_thread" not in st.session_state:
+        st.session_state.recording_thread = None
+    if "recorded_video_path" not in st.session_state:
+        st.session_state.recorded_video_path = None
+    if "recorded_video_analyzed" not in st.session_state:
+        st.session_state.recorded_video_analyzed = False
 
-    room_name = st.text_input("Room name (optional)", placeholder="e.g. Kitchen, Bedroom 1, Bathroom")
-    camera_photo = st.camera_input("Take a photo")
+    camera_mode = st.radio(
+        "Mode",
+        options=["photo", "video_recording"],
+        format_func=lambda x: "Photo" if x == "photo" else "Video recording",
+        horizontal=True,
+        key="camera_mode_radio",
+    )
+    st.session_state.camera_mode = camera_mode
 
-    if camera_photo is not None:
-        pil_img = Image.open(camera_photo)
-        try:
-            with st.spinner("Analyzing image..."):
-                analysis = analyze_image(pil_img, GEMINI_MODEL)
+    # ── Photo mode (existing flow) ──────────────────────────────
+    if camera_mode == "photo":
+        room_name = st.text_input("Room name (optional)", placeholder="e.g. Kitchen, Bedroom 1, Bathroom")
+        camera_photo = st.camera_input("Take a photo")
 
-            if analysis.get("error"):
-                st.error(f"API error: {analysis['summary']}")
-            else:
-                fs = score_frame(analysis)
-                ann = annotate_image(pil_img, analysis)
+        if camera_photo is not None:
+            pil_img = Image.open(camera_photo)
+            try:
+                with st.spinner("Analyzing image..."):
+                    analysis = analyze_image(pil_img, GEMINI_MODEL)
 
-                # Store result
-                st.session_state.camera_results.append({
-                    "room": room_name or f"Capture {len(st.session_state.camera_results) + 1}",
-                    "image": pil_img,
-                    "annotated": ann,
-                    "analysis": analysis,
-                    "score": fs,
-                })
+                if analysis.get("error"):
+                    st.error(f"API error: {analysis['summary']}")
+                else:
+                    fs = score_frame(analysis)
+                    ann = annotate_image(pil_img, analysis)
 
-                _render_risk_badge(fs["score"], fs["risk_level"])
+                    st.session_state.camera_results.append({
+                        "room": room_name or f"Capture {len(st.session_state.camera_results) + 1}",
+                        "image": pil_img,
+                        "annotated": ann,
+                        "analysis": analysis,
+                        "score": fs,
+                    })
 
-                c1, c2 = st.columns(2)
-                c1.image(pil_img, caption="Original", use_container_width=True)
-                c2.image(ann, caption="Defects Detected", use_container_width=True)
+                    _render_risk_badge(fs["score"], fs["risk_level"])
 
-                st.write(analysis.get("summary", ""))
-                for d in analysis.get("defects", []):
-                    _render_defect_card(d)
+                    c1, c2 = st.columns(2)
+                    c1.image(pil_img, caption="Original", use_container_width=True)
+                    c2.image(ann, caption="Defects Detected", use_container_width=True)
 
-        except Exception as e:
-            st.error(f"Error: {str(e)}")
-            if "429" in str(e) or "quota" in str(e).lower():
-                st.warning("Rate limit hit. Wait 1-2 minutes and try again.")
+                    st.write(analysis.get("summary", ""))
+                    for d in analysis.get("defects", []):
+                        _render_defect_card(d)
 
-    # Show history of captures
+            except Exception as e:
+                st.error(f"Error: {str(e)}")
+                if "429" in str(e) or "quota" in str(e).lower():
+                    st.warning("Rate limit hit. Wait 1-2 minutes and try again.")
+
+    # ── Video recording mode ────────────────────────────────────
+    else:
+        if not st.session_state.recording_active and st.session_state.recorded_video_path is None:
+            if st.button("Start recording", type="primary"):
+                st.session_state.recording_stop_flag[0] = False
+                fd, path = tempfile.mkstemp(suffix=".mp4")
+                os.close(fd)
+                st.session_state.recorded_video_path = path
+                t = threading.Thread(
+                    target=_record_webcam_to_file,
+                    args=(st.session_state.recording_stop_flag, path),
+                )
+                t.daemon = True
+                t.start()
+                st.session_state.recording_thread = t
+                st.session_state.recording_active = True
+                st.session_state.recorded_video_analyzed = False
+                st.rerun()
+
+        elif st.session_state.recording_active:
+            st.warning("Recording in progress. Move the camera to cover the area, then click **Stop recording**.")
+            if st.button("Stop recording"):
+                st.session_state.recording_stop_flag[0] = True
+                if st.session_state.recording_thread is not None:
+                    st.session_state.recording_thread.join(timeout=3.0)
+                st.session_state.recording_active = False
+                st.session_state.recording_thread = None
+                st.rerun()
+
+        # Have a recorded file: offer to run inspection or discard
+        if not st.session_state.recording_active and st.session_state.recorded_video_path is not None:
+            rec_path = st.session_state.recorded_video_path
+            if Path(rec_path).exists():
+                st.success("Recording saved. Run inspection to analyze it, or clear to record again.")
+                col_run, col_clear = st.columns(2)
+                with col_run:
+                    if st.button("Run inspection on recording", type="primary") and not st.session_state.recorded_video_analyzed:
+                        try:
+                            with open(rec_path, "rb") as f:
+                                bytes_data = f.read()
+                            info = get_video_info(bytes_data)
+                            st.info(f"Recorded: {info['width']}x{info['height']} | {info['duration_sec']:.1f}s")
+                            frame_tuples = extract_frames_from_bytes(bytes_data, frame_interval, max_frames)
+                            frames = [ft[0] for ft in frame_tuples]
+                            timestamps = [ft[2] for ft in frame_tuples]
+
+                            st.info(f"Analyzing {len(frames)} frames from recording...")
+                            progress = st.progress(0, text="Analyzing frame 1...")
+                            analyses = []
+                            live_container = st.container()
+
+                            for i, frame in enumerate(frames):
+                                progress.progress((i + 1) / len(frames), text=f"Analyzing frame {i + 1}/{len(frames)}...")
+                                analysis = analyze_image(frame, GEMINI_MODEL)
+                                analyses.append(analysis)
+                                with live_container:
+                                    ann = annotate_image(frame, analysis)
+                                    n_defs = len(analysis.get("defects", []))
+                                    fs = score_frame(analysis)
+                                    row1, row2 = st.columns([1, 1])
+                                    with row1:
+                                        st.image(ann, caption=f"Frame {i + 1} · {n_defs} defects · Risk {fs['score']}/100", use_container_width=True)
+                                    with row2:
+                                        st.caption(f"**{analysis.get('room_condition', 'unknown').upper()}**")
+                                        st.write((analysis.get("summary") or "")[:280] + ("…" if len(analysis.get("summary") or "") > 280 else ""))
+                                    st.divider()
+
+                            progress.empty()
+                            prop_score = score_property(analyses)
+                            full_report = generate_property_report(analyses, GEMINI_MODEL)
+
+                            st.session_state["analyses"] = analyses
+                            st.session_state["frames"] = frames
+                            st.session_state["timestamps"] = timestamps
+                            st.session_state["property_score"] = prop_score
+                            st.session_state["full_report_text"] = full_report
+                            st.session_state["mode"] = "video"
+                            st.session_state.recorded_video_analyzed = True
+
+                            _render_risk_badge(prop_score["overall_score"], prop_score["risk_level"])
+                            st.subheader("Step 2 — Full property report")
+                            st.markdown(full_report)
+                            try:
+                                pdf_bytes = generate_pdf(
+                                    frames=frames,
+                                    analyses=analyses,
+                                    property_score=prop_score,
+                                    full_report_text=full_report,
+                                    timestamps=timestamps,
+                                )
+                                st.download_button(
+                                    label="Download PDF Report",
+                                    data=pdf_bytes,
+                                    file_name=f"property_inspection_report_{prop_score['overall_score']:.0f}.pdf",
+                                    mime="application/pdf",
+                                    type="primary",
+                                    key="pdf_download_camera_recording",
+                                )
+                            except Exception as e:
+                                st.warning(f"PDF could not be generated: {e}")
+                        except Exception as e:
+                            st.error(f"Error: {str(e)}")
+                            if "429" in str(e) or "quota" in str(e).lower():
+                                st.warning("Rate limit hit. Wait 1-2 minutes and try again.")
+                with col_clear:
+                    if st.button("Clear recording"):
+                        try:
+                            Path(rec_path).unlink(missing_ok=True)
+                        except Exception:
+                            pass
+                        st.session_state.recorded_video_path = None
+                        st.session_state.recorded_video_analyzed = False
+                        st.rerun()
+
+                if st.session_state.recorded_video_analyzed and "property_score" in st.session_state:
+                    st.divider()
+                    _render_risk_badge(
+                        st.session_state["property_score"]["overall_score"],
+                        st.session_state["property_score"]["risk_level"],
+                    )
+                    st.markdown(st.session_state.get("full_report_text", ""))
+                    try:
+                        pdf_bytes = generate_pdf(
+                            frames=st.session_state.get("frames", []),
+                            analyses=st.session_state.get("analyses", []),
+                            property_score=st.session_state["property_score"],
+                            full_report_text=st.session_state.get("full_report_text", ""),
+                            timestamps=st.session_state.get("timestamps", []),
+                        )
+                        st.download_button(
+                            label="Download PDF Report",
+                            data=pdf_bytes,
+                            file_name=f"property_inspection_report_{st.session_state['property_score']['overall_score']:.0f}.pdf",
+                            mime="application/pdf",
+                            type="primary",
+                            key="pdf_download_camera_recording_2",
+                        )
+                    except Exception:
+                        pass
+
+    # ── Shared: inspection history (photo captures) ──────────────
     if st.session_state.camera_results:
         st.divider()
         st.subheader("Inspection History")
 
-        # Build analyses list for report tab
         cam_analyses = [r["analysis"] for r in st.session_state.camera_results]
         cam_frames = [r["image"] for r in st.session_state.camera_results]
         prop_score = score_property(cam_analyses)
