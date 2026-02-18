@@ -48,12 +48,24 @@ echo "Step 2: Removing commits before the security fix..."
 # The commit c750ae7 removed the keys, so we want to keep from there forward
 # We'll create a new root at the merge commit 727781c
 
+echo "Step 2a: Extracting the exposed keys from git history..."
+# Extract the keys from an old commit to use for filtering
+GEMINI_KEY=$(git show 2bf0d7b:config.py | grep "GEMINI_API_KEY = " | cut -d'"' -f2)
+ROBOFLOW_KEY=$(git show 2bf0d7b:train.py | grep "api_key=" | cut -d'"' -f2)
+
+if [ -z "$GEMINI_KEY" ] || [ -z "$ROBOFLOW_KEY" ]; then
+    echo "ERROR: Could not extract keys from git history"
+    echo "You may need to manually provide the keys to remove"
+    exit 1
+fi
+
+echo "Found keys to remove (redacted): ${GEMINI_KEY:0:10}... and ${ROBOFLOW_KEY:0:10}..."
+
 # Option 1: Remove specific text patterns (the API keys themselves)
-# Note: Full keys are needed here for git-filter-repo to find and replace them
-echo "Filtering out hardcoded API keys..."
+echo "Step 2b: Filtering out hardcoded API keys..."
 git-filter-repo --force \
-  --replace-text <(echo "AIzaSyCL1p2BpZLpjACWI1S2I79Iq6M_eH50lhU==>***REMOVED***") \
-  --replace-text <(echo "XdP8NQpTT2okkMBxTP0r==>***REMOVED***")
+  --replace-text <(echo "${GEMINI_KEY}==>***REMOVED***") \
+  --replace-text <(echo "${ROBOFLOW_KEY}==>***REMOVED***")
 
 # Option 2: Alternative - Start fresh from the merge commit
 # Uncomment these lines if you want to create a completely new history
@@ -69,10 +81,14 @@ git gc --prune=now --aggressive
 
 echo ""
 echo "Step 4: Preparing to push..."
+# Get the original repository URL
+REPO_URL=$(git -C "${CURRENT_DIR}" remote get-url origin)
+echo "Original repository URL: $REPO_URL"
+echo ""
 echo "To complete the cleanup, run these commands manually:"
 echo ""
 echo "cd $CLEAN_DIR"
-echo "git remote set-url origin https://github.com/souhrudhJ/Hackathon-1"
+echo "git remote set-url origin $REPO_URL"
 echo "git push --force --all"
 echo "git push --force --tags"
 echo ""

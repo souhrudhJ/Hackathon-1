@@ -45,11 +45,16 @@ cd Hackathon-1-clean
 # 2. Install git-filter-repo
 pip install git-filter-repo
 
-# 3. Remove the sensitive text
+# 3. Extract the keys from git history and remove them
+# First, extract the exposed keys from an old commit
+GEMINI_KEY=$(git show 2bf0d7b:config.py | grep "GEMINI_API_KEY = " | cut -d'"' -f2)
+ROBOFLOW_KEY=$(git show 2bf0d7b:train.py | grep "api_key=" | cut -d'"' -f2)
+
+# Now filter them out
 git filter-repo --force \
   --replace-text <(cat <<EOF
-AIzaSyCL1p2BpZLpjACWI1S2I79Iq6M_eH50lhU==>***REMOVED***
-XdP8NQpTT2okkMBxTP0r==>***REMOVED***
+${GEMINI_KEY}==>***REMOVED***
+${ROBOFLOW_KEY}==>***REMOVED***
 EOF
 )
 
