@@ -29,16 +29,18 @@ fi
 
 echo ""
 echo "Step 1: Creating a fresh clone for filtering..."
-cd ..
-REPO_NAME=$(basename "$PWD")
-CLEAN_DIR="${REPO_NAME}_cleaned"
+# Capture current directory before moving
+CURRENT_DIR="$PWD"
+REPO_NAME=$(basename "$CURRENT_DIR")
+PARENT_DIR=$(dirname "$CURRENT_DIR")
+CLEAN_DIR="${PARENT_DIR}/${REPO_NAME}_cleaned"
 
 if [ -d "$CLEAN_DIR" ]; then
     echo "Removing existing clean directory..."
     rm -rf "$CLEAN_DIR"
 fi
 
-git clone "file://$PWD/$REPO_NAME" "$CLEAN_DIR"
+git clone "file://${CURRENT_DIR}" "$CLEAN_DIR"
 cd "$CLEAN_DIR"
 
 echo ""
@@ -69,11 +71,14 @@ echo "Step 4: Preparing to push..."
 echo "To complete the cleanup, run these commands manually:"
 echo ""
 echo "cd $CLEAN_DIR"
-echo "git remote add origin <your-repo-url>"
+echo "git remote set-url origin https://github.com/souhrudhJ/Hackathon-1"
 echo "git push --force --all"
 echo "git push --force --tags"
 echo ""
-echo "Then delete the old repository directory and rename this one"
+echo "Then delete the old repository directory and rename this one:"
+echo "cd $PARENT_DIR"
+echo "rm -rf $REPO_NAME"
+echo "mv ${REPO_NAME}_cleaned $REPO_NAME"
 echo ""
 echo "=== IMPORTANT POST-CLEANUP STEPS ==="
 echo "1. Verify the keys are gone: git log -p --all | grep -i 'AIza' || echo 'Keys removed'"
