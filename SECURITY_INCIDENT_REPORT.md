@@ -50,8 +50,8 @@ pip install git-filter-repo
 GEMINI_KEY=$(git show 2bf0d7b:config.py | grep "GEMINI_API_KEY = " | cut -d'"' -f2)
 ROBOFLOW_KEY=$(git show 2bf0d7b:train.py | grep "api_key=" | cut -d'"' -f2)
 
-# Now filter them out
-git filter-repo --force \
+# Now filter them out using git-filter-repo
+git-filter-repo --force \
   --replace-text <(cat <<EOF
 ${GEMINI_KEY}==>***REMOVED***
 ${ROBOFLOW_KEY}==>***REMOVED***

@@ -3,6 +3,11 @@
 # Script to remove commits containing exposed API keys from git history
 # WARNING: This will rewrite git history and require a force push
 # All collaborators will need to re-clone the repository
+#
+# PREREQUISITES:
+# - This script must be run from the Hackathon-1 repository root
+# - Commit 2bf0d7b must exist with the original exposed keys
+# - git-filter-repo must be available (script will install if needed)
 
 set -e
 
@@ -14,7 +19,7 @@ echo "1. Revoke all exposed API keys immediately"
 echo "2. Backup your repository"
 echo "3. Notify all collaborators that they need to re-clone"
 echo ""
-read -p "Have you revoked the API keys and backed up? (yes/no): " confirm
+read -p "Have you revoked the API keys and backed up? Type 'yes' to continue: " confirm
 
 if [ "$confirm" != "yes" ]; then
     echo "Aborting. Please revoke keys first."
@@ -49,13 +54,21 @@ echo "Step 2: Removing commits before the security fix..."
 # We'll create a new root at the merge commit 727781c
 
 echo "Step 2a: Extracting the exposed keys from git history..."
+# Verify the commit exists first
+if ! git cat-file -e 2bf0d7b^{commit} 2>/dev/null; then
+    echo "ERROR: Commit 2bf0d7b not found in repository history"
+    echo "This script requires the full git history. Run 'git fetch --unshallow' if needed."
+    exit 1
+fi
+
 # Extract the keys from an old commit to use for filtering
-GEMINI_KEY=$(git show 2bf0d7b:config.py | grep "GEMINI_API_KEY = " | cut -d'"' -f2)
-ROBOFLOW_KEY=$(git show 2bf0d7b:train.py | grep "api_key=" | cut -d'"' -f2)
+GEMINI_KEY=$(git show 2bf0d7b:config.py 2>/dev/null | grep "GEMINI_API_KEY = " | cut -d'"' -f2 || echo "")
+ROBOFLOW_KEY=$(git show 2bf0d7b:train.py 2>/dev/null | grep "api_key=" | cut -d'"' -f2 || echo "")
 
 if [ -z "$GEMINI_KEY" ] || [ -z "$ROBOFLOW_KEY" ]; then
     echo "ERROR: Could not extract keys from git history"
-    echo "You may need to manually provide the keys to remove"
+    echo "Expected to find keys in commit 2bf0d7b in files config.py and train.py"
+    echo "You may need to manually identify the commit with exposed keys"
     exit 1
 fi
 
