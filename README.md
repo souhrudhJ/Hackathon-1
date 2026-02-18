@@ -5,7 +5,7 @@ Upload **video** or **image** → frame extraction (for video) → defect detect
 ## Quick start
 
 ```bash
-cd c:\Users\souhr\Downloads\Hackathon
+cd Hackathon-1
 python -m venv venv
 venv\Scripts\activate
 pip install -r requirements.txt

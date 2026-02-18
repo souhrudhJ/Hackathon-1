@@ -27,7 +27,7 @@ def main():
     print("Step 1: Downloading wall defect dataset from Roboflow...")
     print("=" * 60)
     from roboflow import Roboflow
-    rf = Roboflow(api_key="XdP8NQpTT2okkMBxTP0r")
+    rf = Roboflow(api_key=os.getenv("ROBOFLOW_API_KEY", ""))
     project = rf.workspace("objectdetection-qxiqx").project("detr_crack_dataset")
     version = project.version(1)
     dataset = version.download("yolov8")
