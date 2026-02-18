@@ -82,6 +82,15 @@ if [ ${#GEMINI_KEY} -lt 20 ] || [ ${#ROBOFLOW_KEY} -lt 10 ]; then
     exit 1
 fi
 
+# Validate keys contain only expected characters (alphanumeric, dashes, underscores)
+# API keys typically don't contain quotes, spaces, or other special characters
+if ! echo "$GEMINI_KEY" | grep -qE '^[A-Za-z0-9_-]+$'; then
+    echo "WARNING: GEMINI_KEY contains unexpected characters, may indicate extraction error"
+fi
+if ! echo "$ROBOFLOW_KEY" | grep -qE '^[A-Za-z0-9_-]+$'; then
+    echo "WARNING: ROBOFLOW_KEY contains unexpected characters, may indicate extraction error"
+fi
+
 echo "Successfully extracted 2 API keys from git history for removal"
 
 # Option 1: Remove specific text patterns (the API keys themselves)

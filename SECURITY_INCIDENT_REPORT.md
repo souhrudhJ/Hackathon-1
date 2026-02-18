@@ -10,8 +10,8 @@ The following commits (and earlier) contained exposed sensitive data:
 
 ## Exposed Information
 The following API keys were hardcoded in commits before `c750ae7`:
-- `config.py` - Gemini API Key: `AIzaSy***...eH50lhU` (full key visible in git history)
-- `train.py` - Roboflow API Key: `XdP8NQ***...kMBxTP0r` (full key visible in git history)
+- `config.py` - Gemini API Key (redacted - visible in git history)
+- `train.py` - Roboflow API Key (redacted - visible in git history)
 - `train_colab.ipynb` - API keys (likely same as above)
 - `README.md` - Personal folder paths
 
@@ -47,8 +47,9 @@ pip install git-filter-repo
 
 # 3. Extract the keys from git history and remove them
 # First, extract the exposed keys from an old commit
-GEMINI_KEY=$(git show 2bf0d7b:config.py | grep "GEMINI_API_KEY = " | cut -d'"' -f2)
-ROBOFLOW_KEY=$(git show 2bf0d7b:train.py | grep "api_key=" | cut -d'"' -f2)
+# Use robust pattern matching to handle various quote styles
+GEMINI_KEY=$(git show 2bf0d7b:config.py 2>/dev/null | grep -E 'GEMINI_API_KEY\s*=\s*["\']' | sed -E 's/.*["\']([^"'\'']+)["\'].*/\1/')
+ROBOFLOW_KEY=$(git show 2bf0d7b:train.py 2>/dev/null | grep -E 'api_key\s*=\s*["\']' | sed -E 's/.*["\']([^"'\'']+)["\'].*/\1/')
 
 # Now filter them out using git-filter-repo
 git-filter-repo --force \
@@ -78,11 +79,12 @@ Even after force-pushing, old commits may be cached. Visit https://support.githu
 
 ## Verification Steps
 After completing the manual cleanup:
-1. Verify keys are removed: `git log -p --all | grep "AIzaSy\|XdP8" || echo "✓ Keys not found"`
-2. Check that history stops at the merge commit: `git log --oneline | wc -l` (should be minimal)
-3. Verify on GitHub that old commits are not accessible
-4. Try accessing old commit URLs directly (should return 404)
-5. Search GitHub for your leaked keys to ensure they're not indexed
+1. Verify keys are removed: `git log -p --all | grep "***REMOVED***" | wc -l` (should show replacements)
+2. Verify no exposed keys remain: `git log -p --all | grep -E "GEMINI_API_KEY.*['\"].*['\"]|api_key.*['\"].*['\"]" | grep -v "***REMOVED***" || echo "✓ No keys found"`
+3. Check that history stops at the merge commit: `git log --oneline | wc -l` (should be minimal)
+4. Verify on GitHub that old commits are not accessible
+5. Try accessing old commit URLs directly (should return 404)
+6. Search GitHub for your leaked keys to ensure they're not indexed
 
 ## Prevention Measures
 - ✅ Already implemented: Use environment variables for secrets

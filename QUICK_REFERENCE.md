@@ -6,8 +6,8 @@
 
 ## Step 1: Revoke Keys (5 minutes) ⚠️ CRITICAL
 
-1. Gemini API: https://aistudio.google.com/apikey → Revoke key starting with `AIzaSy...`
-2. Roboflow API: https://app.roboflow.com/settings/api → Revoke key starting with `XdP8...`
+1. Gemini API: https://aistudio.google.com/apikey → Revoke the exposed key
+2. Roboflow API: https://app.roboflow.com/settings/api → Revoke the exposed key
 
 ## Step 2: Read Documentation (10 minutes)
 
@@ -56,8 +56,12 @@ git clone https://github.com/souhrudhJ/Hackathon-1
 ## Step 7: Verify
 
 ```bash
-# Check keys are gone
-git log -p --all | grep "AIzaSy\|XdP8" || echo "✓ Success"
+# Check keys are removed (verify replacement text exists)
+git log -p --all | grep "***REMOVED***" | wc -l
+# Should show multiple replacements
+
+# Verify no exposed keys remain in history
+git log -p --all | grep -E "GEMINI_API_KEY|api_key" | grep -v "***REMOVED***" | grep -v "getenv\|os.getenv" || echo "✓ Success"
 
 # Verify branch count
 git branch -r | grep copilot
