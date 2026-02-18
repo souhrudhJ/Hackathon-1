@@ -49,6 +49,7 @@ echo "Step 2: Removing commits before the security fix..."
 # We'll create a new root at the merge commit 727781c
 
 # Option 1: Remove specific text patterns (the API keys themselves)
+# Note: Full keys are needed here for git-filter-repo to find and replace them
 echo "Filtering out hardcoded API keys..."
 git-filter-repo --force \
   --replace-text <(echo "AIzaSyCL1p2BpZLpjACWI1S2I79Iq6M_eH50lhU==>***REMOVED***") \
@@ -81,7 +82,7 @@ echo "rm -rf $REPO_NAME"
 echo "mv ${REPO_NAME}_cleaned $REPO_NAME"
 echo ""
 echo "=== IMPORTANT POST-CLEANUP STEPS ==="
-echo "1. Verify the keys are gone: git log -p --all | grep -i 'AIza' || echo 'Keys removed'"
+echo "1. Verify the keys are gone: git log -p --all | grep -i 'AIzaSy' || echo 'Keys removed'"
 echo "2. Delete branches with old references on GitHub:"
 echo "   - copilot/remove-exposed-keys-and-folders"
 echo "   - copilot/delete-commits-and-branch"

@@ -10,8 +10,8 @@ The following commits (and earlier) contained exposed sensitive data:
 
 ## Exposed Information
 The following API keys were hardcoded in commits before `c750ae7`:
-- `config.py` - Gemini API Key: `AIzaSyCL1...` (full key visible in commits)
-- `train.py` - Roboflow API Key: `XdP8NQpT...` (full key visible in commits)
+- `config.py` - Gemini API Key: `AIzaSy***...eH50lhU` (full key visible in git history)
+- `train.py` - Roboflow API Key: `XdP8NQ***...kMBxTP0r` (full key visible in git history)
 - `train_colab.ipynb` - API keys (likely same as above)
 - `README.md` - Personal folder paths
 
@@ -73,7 +73,7 @@ Even after force-pushing, old commits may be cached. Visit https://support.githu
 
 ## Verification Steps
 After completing the manual cleanup:
-1. Verify keys are removed: `git log -p --all | grep "AIza\|XdP8N" || echo "✓ Keys not found"`
+1. Verify keys are removed: `git log -p --all | grep "AIzaSy\|XdP8" || echo "✓ Keys not found"`
 2. Check that history stops at the merge commit: `git log --oneline | wc -l` (should be minimal)
 3. Verify on GitHub that old commits are not accessible
 4. Try accessing old commit URLs directly (should return 404)
