@@ -30,14 +30,27 @@ The following API keys were hardcoded in commits before `c750ae7`:
 
 #### Required Manual Steps (Repository Owner Only):
 
-**Step A: Use the provided cleanup script**
+**Step A: Use the provided cleanup script (Recommended)**
 ```bash
 chmod +x cleanup_history.sh
 ./cleanup_history.sh
 ```
+The script includes security measures:
+- Disables shell history during execution
+- Clears sensitive variables immediately after use
+- Clears shell history at completion
+- Holds keys in memory only during the filtering process
 
-**Step B: Or manually rewrite history**
+**Step B: Or manually rewrite history (Advanced)**
+⚠️ **Security Warning**: Manual execution will expose keys in shell history.
+Run these commands in a temporary shell session and clear history afterward.
+
 ```bash
+# Run in a new shell to isolate history
+bash --noprofile --norc
+
+# Disable history for this session
+set +o history
 # 1. Clone a fresh copy for filtering
 git clone https://github.com/souhrudhJ/Hackathon-1 Hackathon-1-clean
 cd Hackathon-1-clean
@@ -59,6 +72,10 @@ ${ROBOFLOW_KEY}==>***REMOVED***
 EOF
 )
 
+# Clear sensitive variables
+unset GEMINI_KEY ROBOFLOW_KEY
+)
+
 # 4. Clean up
 git reflog expire --expire=now --all
 git gc --prune=now --aggressive
@@ -66,7 +83,13 @@ git gc --prune=now --aggressive
 # 5. Force push (THIS REWRITES HISTORY)
 git push --force --all
 git push --force --tags
+
+# 6. Security cleanup - clear shell history
+history -c
+exit  # Exit the isolated shell
 ```
+
+After manual execution, verify your main shell history doesn't contain the keys.
 
 **Step C: Delete stale branches on GitHub**
 ```bash

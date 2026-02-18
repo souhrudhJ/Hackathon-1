@@ -9,9 +9,18 @@
 # - Commit 2bf0d7b must exist with the original exposed keys
 # - git-filter-repo must be available (script will install if needed)
 #
+# SECURITY NOTE:
+# - This script temporarily extracts keys into variables for filtering
+# - Keys are only held in memory during execution
+# - Shell history is cleared at the end to remove any traces
+# - Run in a clean environment and avoid logging/debugging
+#
 # USAGE: ./cleanup_history.sh
 
 set -e
+
+# Disable command history for this session to prevent key exposure
+set +o history
 
 echo "=== Git History Cleanup Script ==="
 echo "This script will remove commits containing exposed API keys"
@@ -91,7 +100,7 @@ if ! echo "$ROBOFLOW_KEY" | grep -qE '^[A-Za-z0-9_-]+$'; then
     echo "WARNING: ROBOFLOW_KEY contains unexpected characters, may indicate extraction error"
 fi
 
-echo "Successfully extracted 2 API keys from git history for removal"
+echo "Filtering will now begin - keys will only exist temporarily in memory"
 
 # Option 1: Remove specific text patterns (the API keys themselves)
 echo "Step 2b: Filtering out hardcoded API keys..."
@@ -100,6 +109,10 @@ if [ -n "$GEMINI_KEY" ] && [ -n "$ROBOFLOW_KEY" ]; then
     git-filter-repo --force \
       --replace-text <(echo "${GEMINI_KEY}==>***REMOVED***") \
       --replace-text <(echo "${ROBOFLOW_KEY}==>***REMOVED***")
+    
+    # Clear the sensitive variables immediately after use
+    unset GEMINI_KEY
+    unset ROBOFLOW_KEY
 else
     echo "ERROR: Keys became empty before filtering step"
     exit 1
@@ -146,3 +159,8 @@ echo "   - copilot/delete-commits-and-branch"
 echo "4. Contact GitHub support to purge cached commits: https://support.github.com/"
 echo "5. All collaborators must re-clone the repository"
 echo ""
+
+# Security cleanup: Clear any bash history that might contain sensitive data
+# This script disabled history at the start, but clear it anyway for safety
+history -c 2>/dev/null || true
+echo "Script complete. Shell history cleared for security."
