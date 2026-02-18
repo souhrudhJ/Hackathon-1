@@ -5,9 +5,11 @@
 # All collaborators will need to re-clone the repository
 #
 # PREREQUISITES:
-# - This script must be run from the Hackathon-1 repository root
+# - This script must be run from the repository root directory
 # - Commit 2bf0d7b must exist with the original exposed keys
 # - git-filter-repo must be available (script will install if needed)
+#
+# USAGE: ./cleanup_history.sh
 
 set -e
 
@@ -62,8 +64,9 @@ if ! git cat-file -e 2bf0d7b^{commit} 2>/dev/null; then
 fi
 
 # Extract the keys from an old commit to use for filtering
-GEMINI_KEY=$(git show 2bf0d7b:config.py 2>/dev/null | grep "GEMINI_API_KEY = " | cut -d'"' -f2 || echo "")
-ROBOFLOW_KEY=$(git show 2bf0d7b:train.py 2>/dev/null | grep "api_key=" | cut -d'"' -f2 || echo "")
+# Try both double and single quote patterns for robustness
+GEMINI_KEY=$(git show 2bf0d7b:config.py 2>/dev/null | grep -E 'GEMINI_API_KEY\s*=\s*["\']' | sed -E 's/.*["\']([^"'\'']+)["\'].*/\1/' || echo "")
+ROBOFLOW_KEY=$(git show 2bf0d7b:train.py 2>/dev/null | grep -E 'api_key\s*=\s*["\']' | sed -E 's/.*["\']([^"'\'']+)["\'].*/\1/' || echo "")
 
 if [ -z "$GEMINI_KEY" ] || [ -z "$ROBOFLOW_KEY" ]; then
     echo "ERROR: Could not extract keys from git history"
@@ -72,13 +75,26 @@ if [ -z "$GEMINI_KEY" ] || [ -z "$ROBOFLOW_KEY" ]; then
     exit 1
 fi
 
-echo "Found keys to remove (redacted): ${GEMINI_KEY:0:10}... and ${ROBOFLOW_KEY:0:10}..."
+# Validate that keys look reasonable (not empty, have minimum length)
+if [ ${#GEMINI_KEY} -lt 20 ] || [ ${#ROBOFLOW_KEY} -lt 10 ]; then
+    echo "ERROR: Extracted keys appear invalid (too short)"
+    echo "GEMINI_KEY length: ${#GEMINI_KEY}, ROBOFLOW_KEY length: ${#ROBOFLOW_KEY}"
+    exit 1
+fi
+
+echo "Successfully extracted 2 API keys from git history for removal"
 
 # Option 1: Remove specific text patterns (the API keys themselves)
 echo "Step 2b: Filtering out hardcoded API keys..."
-git-filter-repo --force \
-  --replace-text <(echo "${GEMINI_KEY}==>***REMOVED***") \
-  --replace-text <(echo "${ROBOFLOW_KEY}==>***REMOVED***")
+# Double-check keys are not empty before filtering (defense in depth)
+if [ -n "$GEMINI_KEY" ] && [ -n "$ROBOFLOW_KEY" ]; then
+    git-filter-repo --force \
+      --replace-text <(echo "${GEMINI_KEY}==>***REMOVED***") \
+      --replace-text <(echo "${ROBOFLOW_KEY}==>***REMOVED***")
+else
+    echo "ERROR: Keys became empty before filtering step"
+    exit 1
+fi
 
 # Option 2: Alternative - Start fresh from the merge commit
 # Uncomment these lines if you want to create a completely new history
